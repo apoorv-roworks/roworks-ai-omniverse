@@ -1,0 +1,12 @@
+[package]
+title = "RoWorks Visualization"
+version = "1.0.0"
+description = "Visualization for RoWorks"
+category = "RoWorks"
+
+[dependencies]
+"omni.usd" = {}
+"roworks.scene.manager" = {}
+
+[[python.module]]
+name = "roworks.visualization"

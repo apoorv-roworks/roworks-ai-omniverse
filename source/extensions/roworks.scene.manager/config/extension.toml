@@ -1,0 +1,11 @@
+[package]
+title = "RoWorks Scene Manager"
+version = "1.0.0"
+description = "Scene management for RoWorks"
+category = "RoWorks"
+
+[dependencies]
+"omni.usd" = {}
+
+[[python.module]]
+name = "roworks.scene.manager"

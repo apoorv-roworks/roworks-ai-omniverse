@@ -1,0 +1,12 @@
+[package]
+title = "RoWorks Data Import"
+version = "1.0.0"
+description = "Data import for RoWorks"
+category = "RoWorks"
+
+[dependencies]
+"omni.usd" = {}
+"roworks.scene.manager" = {}
+
+[[python.module]]
+name = "roworks.data.import"

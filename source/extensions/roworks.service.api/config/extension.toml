@@ -1,0 +1,19 @@
+[package]
+title = "RoWorks Service API"
+version = "1.0.0"
+description = "API service for RoWorks"
+category = "RoWorks"
+
+[dependencies]
+"omni.usd" = {}
+"roworks.scene.manager" = {}
+
+[[python.module]]
+name = "roworks.service.api"
+
+[python.pipapi]
+requirements = [
+    "fastapi",
+    "uvicorn",
+    "python-multipart",
+]

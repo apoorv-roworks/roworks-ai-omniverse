@@ -81,8 +81,7 @@ publish_pip_cache = false
 
 [repo_precache_exts]
 # Apps to run and precache
-apps = [
-]
+apps = ["${root}/source/apps/roworks_ai_omniverse.kit", "${root}/source/apps/roworks_ai_omniverse_streaming.kit", "${root}/source/apps/roworks_ai_omniverse_ovc.kit", "${root}/source/apps/roworks_ai_omniverse_gdn_streaming.kit", "${root}/source/apps/roworks_ai_omniverse_ovc_legacy.kit"]
 
 registries = [
     { name = "kit/default", url = "https://ovextensionsprod.blob.core.windows.net/exts/kit/prod/${kit_version_major}/shared" },

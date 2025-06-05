@@ -15,3 +15,9 @@ repo_build.prebuild_copy {
 }
 
 -- Apps: for each app generate batch files and a project based on kit files (e.g. my_name.my_app.kit)
+
+define_app("roworks_ai_omniverse.kit")
+define_app("roworks_ai_omniverse_streaming.kit")
+define_app("roworks_ai_omniverse_ovc.kit")
+define_app("roworks_ai_omniverse_gdn_streaming.kit")
+define_app("roworks_ai_omniverse_ovc_legacy.kit")
