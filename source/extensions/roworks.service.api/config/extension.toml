@@ -7,6 +7,7 @@ category = "RoWorks"
 [dependencies]
 "omni.usd" = {}
 "roworks.scene.manager" = {}
+"roworks.data.import" = {}
 
 [[python.module]]
 name = "roworks.service.api"
@@ -17,3 +18,4 @@ requirements = [
     "uvicorn",
     "python-multipart",
 ]
+use_online_index = true

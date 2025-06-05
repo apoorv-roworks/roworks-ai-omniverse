@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RoWorks AI Omniverse - File Upload</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            max-width: 600px;
+            width: 100%;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1rem;
+        }
+
+        .upload-section {
+            margin-bottom: 30px;
+        }
+
+        .upload-section h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.3rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .upload-area {
+            border: 2px dashed #ddd;
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            margin-bottom: 15px;
+        }
+
+        .upload-area:hover, .upload-area.dragover {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.05);
+        }
+
+        .upload-area input[type="file"] {
+            display: none;
+        }
+
+        .upload-icon {
+            font-size: 3rem;
+            color: #ddd;
+            margin-bottom: 15px;
+            transition: color 0.3s ease;
+        }
+
+        .upload-area:hover .upload-icon {
+            color: #667eea;
+        }
+
+        .upload-text {
+            color: #666;
+            font-size: 1.1rem;
+            margin-bottom: 10px;
+        }
+
+        .file-info {
+            color: #999;
+            font-size: 0.9rem;
+        }
+
+        .selected-file {
+            background: rgba(102, 126, 234, 0.1);
+            border: 1px solid #667eea;
+            border-radius: 8px;
+            padding: 10px;
+            margin: 10px 0;
+            font-size: 0.9rem;
+            color: #333;
+        }
+
+        .upload-btn {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+            width: 100%;
+        }
+
+        .upload-btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .upload-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            font-weight: 500;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status.loading {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: #eee;
+            border-radius: 3px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .scene-info {
+            background: rgba(102, 126, 234, 0.05);
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 30px;
+        }
+
+        .scene-info h3 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .object-count {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            color: #666;
+        }
+
+        .refresh-btn {
+            background: transparent;
+            border: 2px solid #667eea;
+            color: #667eea;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            margin-top: 10px;
+        }
+
+        .refresh-btn:hover {
+            background: #667eea;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 RoWorks AI</h1>
+            <p>Upload your 3D files to Omniverse</p>
+        </div>
+
+        <!-- Mesh Upload Section -->
+        <div class="upload-section">
+            <h3>📦 Mesh Files (.obj, .fbx, .usd)</h3>
+            <div class="upload-area" onclick="document.getElementById('meshFile').click()">
+                <div class="upload-icon">📁</div>
+                <div class="upload-text">Click to select mesh file</div>
+                <div class="file-info">Supported: OBJ, FBX, USD, USDA, USDC</div>
+                <input type="file" id="meshFile" accept=".obj,.fbx,.usd,.usda,.usdc" onchange="handleFileSelect(this, 'mesh')">
+            </div>
+            <div id="meshFileInfo"></div>
+            <button class="upload-btn" id="meshUploadBtn" onclick="uploadFile('mesh')" disabled>
+                Upload Mesh
+            </button>
+        </div>
+
+        <!-- Point Cloud Upload Section -->
+        <div class="upload-section">
+            <h3>☁️ Point Cloud Files (.xyz, .pcd, .ply, .las)</h3>
+            <div class="upload-area" onclick="document.getElementById('pointcloudFile').click()">
+                <div class="upload-icon">🌐</div>
+                <div class="upload-text">Click to select point cloud file</div>
+                <div class="file-info">Supported: XYZ, PCD, PLY, LAS</div>
+                <input type="file" id="pointcloudFile" accept=".xyz,.pcd,.ply,.las" onchange="handleFileSelect(this, 'pointcloud')">
+            </div>
+            <div id="pointcloudFileInfo"></div>
+            <button class="upload-btn" id="pointcloudUploadBtn" onclick="uploadFile('pointcloud')" disabled>
+                Upload Point Cloud
+            </button>
+        </div>
+
+        <!-- Robot Upload Section -->
+        <div class="upload-section">
+            <h3>🤖 Robot Models (.urdf, .xacro, .usd)</h3>
+            <div class="upload-area" onclick="document.getElementById('robotFile').click()">
+                <div class="upload-icon">🤖</div>
+                <div class="upload-text">Click to select robot file</div>
+                <div class="file-info">Supported: URDF, XACRO, USD</div>
+                <input type="file" id="robotFile" accept=".urdf,.xacro,.usd,.usda,.usdc" onchange="handleFileSelect(this, 'robot')">
+            </div>
+            <div id="robotFileInfo"></div>
+            <button class="upload-btn" id="robotUploadBtn" onclick="uploadFile('robot')" disabled>
+                Upload Robot
+            </button>
+        </div>
+
+        <!-- Status Display -->
+        <div id="statusDisplay"></div>
+
+        <!-- Scene Information -->
+        <div class="scene-info">
+            <h3>📊 Scene Information</h3>
+            <div id="sceneInfo">
+                <div class="object-count">
+                    <span>Total Objects:</span>
+                    <span id="totalObjects">0</span>
+                </div>
+                <div class="object-count">
+                    <span>Meshes:</span>
+                    <span id="meshCount">0</span>
+                </div>
+                <div class="object-count">
+                    <span>Point Clouds:</span>
+                    <span id="pointcloudCount">0</span>
+                </div>
+                <div class="object-count">
+                    <span>Robots:</span>
+                    <span id="robotCount">0</span>
+                </div>
+            </div>
+            <button class="refresh-btn" onclick="refreshSceneInfo()">🔄 Refresh</button>
+        </div>
+    </div>
+
+    <script>
+        // Configuration - Update this to match your EC2 instance
+        const API_BASE_URL = 'http://ec2-3-132-234-13.us-east-2.compute.amazonaws.com:49101';
+        
+        let selectedFiles = {
+            mesh: null,
+            pointcloud: null,
+            robot: null
+        };
+
+        function handleFileSelect(input, type) {
+            const file = input.files[0];
+            if (file) {
+                selectedFiles[type] = file;
+                
+                const fileInfo = document.getElementById(`${type}FileInfo`);
+                const uploadBtn = document.getElementById(`${type}UploadBtn`);
+                
+                fileInfo.innerHTML = `
+                    <div class="selected-file">
+                        📄 ${file.name} (${formatFileSize(file.size)})
+                    </div>
+                `;
+                
+                uploadBtn.disabled = false;
+            }
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        async function uploadFile(type) {
+            const file = selectedFiles[type];
+            if (!file) {
+                showStatus('error', 'No file selected');
+                return;
+            }
+
+            const uploadBtn = document.getElementById(`${type}UploadBtn`);
+            uploadBtn.disabled = true;
+            uploadBtn.textContent = 'Uploading...';
+
+            try {
+                showStatus('loading', `Uploading ${file.name}...`);
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                const response = await fetch(`${API_BASE_URL}/${type}/import`, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        // Don't set Content-Type, let browser set it with boundary
+                    }
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    showStatus('success', `✅ ${result.message}`);
+                    refreshSceneInfo();
+                } else {
+                    throw new Error(result.message || 'Upload failed');
+                }
+            } catch (error) {
+                console.error('Upload error:', error);
+                showStatus('error', `❌ Upload error: ${error.message}`);
+            } finally {
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = `Upload ${type.charAt(0).toUpperCase() + type.slice(1)}`;
+            }
+        }
+
+        function showStatus(type, message) {
+            const statusDisplay = document.getElementById('statusDisplay');
+            statusDisplay.className = `status ${type}`;
+            statusDisplay.textContent = message;
+            statusDisplay.style.display = 'block';
+
+            if (type === 'success') {
+                setTimeout(() => {
+                    statusDisplay.style.display = 'none';
+                }, 5000);
+            }
+        }
+
+        async function refreshSceneInfo() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/scene/info`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('totalObjects').textContent = data.total_objects;
+                    document.getElementById('meshCount').textContent = data.objects_by_type.mesh || 0;
+                    document.getElementById('pointcloudCount').textContent = data.objects_by_type.pointcloud || 0;
+                    document.getElementById('robotCount').textContent = data.objects_by_type.robot || 0;
+                }
+            } catch (error) {
+                console.error('Failed to refresh scene info:', error);
+            }
+        }
+
+        // Check API connection on page load
+        async function checkConnection() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/health`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showStatus('success', '🟢 Connected to RoWorks API');
+                    refreshSceneInfo();
+                } else {
+                    throw new Error('API not responding');
+                }
+            } catch (error) {
+                showStatus('error', `🔴 Cannot connect to API at ${API_BASE_URL}. Make sure the RoWorks app is running.`);
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            checkConnection();
+        });
+
+        // Drag and drop functionality
+        document.querySelectorAll('.upload-area').forEach(area => {
+            area.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                area.classList.add('dragover');
+            });
+
+            area.addEventListener('dragleave', () => {
+                area.classList.remove('dragover');
+            });
+
+            area.addEventListener('drop', (e) => {
+                e.preventDefault();
+                area.classList.remove('dragover');
+                
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    const input = area.querySelector('input[type="file"]');
+                    input.files = files;
+                    
+                    // Trigger change event
+                    const event = new Event('change');
+                    input.dispatchEvent(event);
+                }
+            });
+        });
+    </script>
+</body>
+</html>
