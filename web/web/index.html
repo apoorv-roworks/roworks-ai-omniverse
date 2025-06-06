@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RoWorks AI Omniverse - Enhanced File Upload</title>
+    <title>RoWorks AI Omniverse - Mesh Asset Upload</title>
     <style>
         * {
             margin: 0;
@@ -27,13 +27,13 @@
             border-radius: 20px;
             padding: 40px;
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-            max-width: 700px;
+            max-width: 800px;
             width: 100%;
         }
 
         .header {
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 40px;
         }
 
         .header h1 {
@@ -46,31 +46,110 @@
             background-clip: text;
         }
 
-        .upload-section {
-            margin-bottom: 30px;
-            border: 1px solid #e0e0e0;
-            border-radius: 12px;
-            padding: 20px;
-            background: rgba(255, 255, 255, 0.7);
+        .header p {
+            color: #666;
+            font-size: 1.1rem;
+            margin-bottom: 10px;
         }
 
-        .upload-section h3 {
-            color: #333;
+        .workflow-info {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+            border: 2px solid #667eea;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+
+        .workflow-info h3 {
+            color: #667eea;
             margin-bottom: 15px;
             font-size: 1.3rem;
+        }
+
+        .workflow-steps {
+            list-style: none;
+            padding: 0;
+        }
+
+        .workflow-steps li {
             display: flex;
             align-items: center;
-            gap: 10px;
+            margin-bottom: 10px;
+            color: #555;
+        }
+
+        .workflow-steps li::before {
+            content: "✓";
+            background: #667eea;
+            color: white;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 15px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+
+        .upload-section {
+            margin-bottom: 30px;
+        }
+
+        .upload-section.required {
+            border: 2px solid #667eea;
+            border-radius: 15px;
+            padding: 25px;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.05), rgba(118, 75, 162, 0.05));
+        }
+
+        .upload-section.optional {
+            border: 2px dashed #ccc;
+            border-radius: 15px;
+            padding: 25px;
+            background: rgba(240, 240, 240, 0.3);
+            opacity: 0.8;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .section-header h3 {
+            color: #333;
+            font-size: 1.4rem;
+            margin-right: 15px;
+        }
+
+        .required-badge {
+            background: #e74c3c;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+
+        .optional-badge {
+            background: #95a5a6;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: bold;
         }
 
         .upload-area {
             border: 2px dashed #ddd;
             border-radius: 12px;
-            padding: 30px;
+            padding: 40px;
             text-align: center;
             transition: all 0.3s ease;
             cursor: pointer;
-            margin-bottom: 15px;
+            margin-bottom: 20px;
         }
 
         .upload-area:hover, .upload-area.dragover {
@@ -78,14 +157,19 @@
             background: rgba(102, 126, 234, 0.05);
         }
 
+        .upload-area.required:hover, .upload-area.required.dragover {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.1);
+        }
+
         .upload-area input[type="file"] {
             display: none;
         }
 
         .upload-icon {
-            font-size: 3rem;
+            font-size: 4rem;
             color: #ddd;
-            margin-bottom: 15px;
+            margin-bottom: 20px;
             transition: color 0.3s ease;
         }
 
@@ -95,37 +179,77 @@
 
         .upload-text {
             color: #666;
-            font-size: 1.1rem;
-            margin-bottom: 10px;
+            font-size: 1.2rem;
+            margin-bottom: 15px;
+            font-weight: 600;
         }
 
         .file-info {
             color: #999;
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        .file-requirements {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
             font-size: 0.9rem;
-            line-height: 1.4;
+        }
+
+        .file-requirements h4 {
+            color: #856404;
+            margin-bottom: 10px;
+        }
+
+        .file-requirements ul {
+            margin-left: 20px;
+            color: #856404;
         }
 
         .selected-file {
             background: rgba(102, 126, 234, 0.1);
             border: 1px solid #667eea;
             border-radius: 8px;
-            padding: 10px;
-            margin: 10px 0;
-            font-size: 0.9rem;
+            padding: 15px;
+            margin: 15px 0;
+            font-size: 0.95rem;
             color: #333;
+        }
+
+        .file-analysis {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            font-size: 0.9rem;
+        }
+
+        .analysis-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .analysis-item:last-child {
+            border-bottom: none;
         }
 
         .upload-btn {
             background: linear-gradient(135deg, #667eea, #764ba2);
             color: white;
             border: none;
-            padding: 12px 30px;
+            padding: 15px 30px;
             border-radius: 8px;
-            font-size: 1rem;
+            font-size: 1.1rem;
             cursor: pointer;
             transition: transform 0.2s ease;
             width: 100%;
-            margin-top: 10px;
+            font-weight: 600;
         }
 
         .upload-btn:hover {
@@ -142,11 +266,12 @@
             background: transparent;
             border: 2px solid #667eea;
             color: #667eea;
-            padding: 8px 20px;
+            padding: 10px 20px;
             border-radius: 6px;
             cursor: pointer;
             font-size: 0.9rem;
-            margin-right: 10px;
+            margin-right: 15px;
+            transition: all 0.3s ease;
         }
 
         .analyze-btn:hover {
@@ -154,11 +279,23 @@
             color: white;
         }
 
+        .analyze-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
         .status {
-            margin-top: 20px;
-            padding: 15px;
-            border-radius: 8px;
+            margin-top: 30px;
+            padding: 20px;
+            border-radius: 10px;
             font-weight: 500;
+            font-size: 1rem;
         }
 
         .status.success {
@@ -179,64 +316,13 @@
             border: 1px solid #bee5eb;
         }
 
-        .polycam-special {
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
-            border: 2px solid #667eea;
-        }
-
-        .file-analysis {
-            background: #f8f9fa;
-            border-radius: 8px;
-            padding: 15px;
-            margin: 10px 0;
-            font-size: 0.9rem;
-        }
-
-        .analysis-item {
-            display: flex;
-            justify-content: space-between;
-            margin: 5px 0;
-        }
-
-        .analysis-item .check {
-            color: #28a745;
-        }
-
-        .analysis-item .cross {
-            color: #dc3545;
-        }
-
-        .compression-tip {
-            background: #fff3cd;
-            border: 1px solid #ffeaa7;
-            border-radius: 8px;
-            padding: 12px;
-            margin: 10px 0;
-            font-size: 0.9rem;
-            display: none;
-        }
-
-        .compression-tip.show {
-            display: block;
-        }
-
-        .large-file-warning {
-            background: #f8d7da;
-            border: 1px solid #f5c6cb;
-            color: #721c24;
-            border-radius: 8px;
-            padding: 10px;
-            margin: 5px 0;
-            font-size: 0.85rem;
-        }
-
         .progress-indicator {
             width: 100%;
-            height: 4px;
+            height: 6px;
             background: #eee;
-            border-radius: 2px;
+            border-radius: 3px;
             overflow: hidden;
-            margin: 10px 0;
+            margin: 15px 0;
             display: none;
         }
 
@@ -252,148 +338,268 @@
             0%, 100% { opacity: 1; }
             50% { opacity: 0.7; }
         }
+
+        .scene-info {
+            background: rgba(102, 126, 234, 0.05);
+            border-radius: 15px;
+            padding: 25px;
+            margin-top: 40px;
+        }
+
+        .scene-info h3 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.3rem;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 15px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e1e8ed;
+        }
+
+        .refresh-btn {
+            background: transparent;
+            border: 2px solid #667eea;
+            color: #667eea;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            margin-top: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .refresh-btn:hover {
+            background: #667eea;
+            color: white;
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            font-weight: 600;
+        }
+
+        .connection-status.connected {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .connection-status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.green {
+            background: #28a745;
+        }
+
+        .status-dot.red {
+            background: #dc3545;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+                margin: 10px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .button-group {
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .analyze-btn {
+                margin-right: 0;
+                width: 100%;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚀 RoWorks AI</h1>
-            <p>Upload Polycam ZIP + Point Cloud for automatic USD creation</p>
-            <p style="font-size: 0.9rem; color: #666; margin-top: 5px;">
-                💡 Large point clouds? Compress to .gz or .zip for better performance!
-            </p>
+            <h1>🚀 RoWorks AI Omniverse</h1>
+            <p>Upload 3D Mesh Assets for Automatic USD Creation</p>
         </div>
 
-        <!-- Polycam Upload Section -->
-        <div class="upload-section polycam-special">
-            <h3>📸 Polycam Archive (.zip) - REQUIRED</h3>
-            <div class="upload-area" onclick="document.getElementById('polycamFile').click()">
-                <div class="upload-icon">📦</div>
-                <div class="upload-text">Click to select Polycam ZIP file</div>
-                <div class="file-info">Contains: OBJ mesh, MTL materials, and textures</div>
-                <input type="file" id="polycamFile" accept=".zip" onchange="handleFileSelect(this, 'polycam')">
+        <!-- Connection Status -->
+        <div id="connectionStatus" class="connection-status disconnected">
+            <div class="status-dot red"></div>
+            <span>Connecting to RoWorks API...</span>
+        </div>
+
+        <!-- Workflow Info -->
+        <div class="workflow-info">
+            <h3>📋 Simplified Workflow</h3>
+            <ul class="workflow-steps">
+                <li>Upload mesh ZIP file (OBJ + MTL + textures)</li>
+                <li>Automatic USD asset creation with materials</li>
+                <li>Instant import into Omniverse scene</li>
+                <li>Optional: Add point clouds or robot models</li>
+            </ul>
+        </div>
+
+        <!-- Required: Mesh ZIP Upload -->
+        <div class="upload-section required">
+            <div class="section-header">
+                <h3>📦 3D Mesh Asset</h3>
+                <span class="required-badge">REQUIRED</span>
             </div>
-            <div id="polycamFileInfo"></div>
-            <div id="polycamAnalysis"></div>
-            <div style="display: flex; gap: 10px;">
-                <button class="analyze-btn" id="polycamAnalyzeBtn" onclick="analyzePolycam()" disabled>
+            
+            <div class="upload-area required" onclick="document.getElementById('meshFile').click()">
+                <div class="upload-icon">🎨</div>
+                <div class="upload-text">Click or drag to upload mesh ZIP file</div>
+                <div class="file-info">
+                    Upload your 3D mesh as a ZIP archive<br>
+                    <strong>Max size:</strong> 100MB
+                </div>
+                <input type="file" id="meshFile" accept=".zip" onchange="handleFileSelect(this, 'mesh')">
+            </div>
+
+            <div class="file-requirements">
+                <h4>📋 ZIP Archive Requirements:</h4>
+                <ul>
+                    <li><strong>*.obj</strong> - 3D mesh geometry (required)</li>
+                    <li><strong>*.mtl</strong> - Material definitions (optional)</li>
+                    <li><strong>*.jpg/*.png</strong> - Texture images (optional)</li>
+                </ul>
+                <p style="margin-top: 10px; color: #856404;">
+                    <strong>Note:</strong> USD creation starts automatically when mesh is uploaded!
+                </p>
+            </div>
+
+            <div id="meshFileInfo"></div>
+            <div id="meshAnalysis"></div>
+
+            <div class="button-group">
+                <button class="analyze-btn" id="meshAnalyzeBtn" onclick="analyzeMesh()" disabled>
                     🔍 Analyze ZIP
                 </button>
-                <button class="upload-btn" id="polycamUploadBtn" onclick="uploadFile('polycam')" disabled style="flex: 1;">
-                    Upload Polycam ZIP
+                <button class="upload-btn" id="meshUploadBtn" onclick="uploadFile('mesh')" disabled>
+                    🚀 Upload & Create USD Asset
                 </button>
             </div>
-            <div class="progress-indicator" id="polycamProgress">
+
+            <div class="progress-indicator" id="meshProgress">
                 <div class="progress-bar"></div>
             </div>
         </div>
 
-        <!-- Point Cloud Upload Section -->
-        <div class="upload-section polycam-special">
-            <h3>☁️ Point Cloud Files (.xyz, .gz, .zip) - REQUIRED</h3>
+        <!-- Optional: Point Cloud Upload -->
+        <div class="upload-section optional">
+            <div class="section-header">
+                <h3>☁️ Point Cloud Data</h3>
+                <span class="optional-badge">OPTIONAL</span>
+            </div>
+            
             <div class="upload-area" onclick="document.getElementById('pointcloudFile').click()">
                 <div class="upload-icon">🌐</div>
-                <div class="upload-text">Click to select point cloud file</div>
+                <div class="upload-text">Add point cloud data (optional)</div>
                 <div class="file-info">
-                    <strong>Supported:</strong> XYZ, GZ (compressed), ZIP (compressed), PCD, PLY, LAS<br>
-                    <strong>💡 Tip:</strong> For large files (>10MB), compress to .gz or .zip format<br>
-                    <strong>Max size:</strong> 50MB compressed • <strong>Max points:</strong> 15,000
+                    Supported: XYZ, PCD, PLY, LAS files<br>
+                    <strong>Max size:</strong> 50MB
                 </div>
-                <input type="file" id="pointcloudFile" accept=".xyz,.gz,.zip,.pcd,.ply,.las" onchange="handleFileSelect(this, 'pointcloud')">
+                <input type="file" id="pointcloudFile" accept=".xyz,.pcd,.ply,.las" onchange="handleFileSelect(this, 'pointcloud')">
             </div>
+
             <div id="pointcloudFileInfo"></div>
-            <div id="pointcloudCompressionTip" class="compression-tip">
-                💡 <strong>Large file detected!</strong> Consider compressing your XYZ file to .gz or .zip format to improve upload speed and processing performance.
-            </div>
             <button class="upload-btn" id="pointcloudUploadBtn" onclick="uploadFile('pointcloud')" disabled>
-                Upload Point Cloud
+                📊 Add Point Cloud
             </button>
-            <div class="progress-indicator" id="pointcloudProgress">
-                <div class="progress-bar"></div>
-            </div>
         </div>
 
-        <!-- Robot Upload Section -->
-        <div class="upload-section">
-            <h3>🤖 Robot Models (.urdf, .xacro, .usd) - OPTIONAL</h3>
+        <!-- Optional: Robot Model Upload -->
+        <div class="upload-section optional">
+            <div class="section-header">
+                <h3>🤖 Robot Model</h3>
+                <span class="optional-badge">OPTIONAL</span>
+            </div>
+            
             <div class="upload-area" onclick="document.getElementById('robotFile').click()">
                 <div class="upload-icon">🤖</div>
-                <div class="upload-text">Click to select robot file (optional)</div>
-                <div class="file-info">Will be included in USD scene if uploaded</div>
+                <div class="upload-text">Add robot model (optional)</div>
+                <div class="file-info">
+                    Supported: URDF, XACRO, USD files<br>
+                    <strong>Max size:</strong> 50MB
+                </div>
                 <input type="file" id="robotFile" accept=".urdf,.xacro,.usd,.usda,.usdc" onchange="handleFileSelect(this, 'robot')">
             </div>
+
             <div id="robotFileInfo"></div>
             <button class="upload-btn" id="robotUploadBtn" onclick="uploadFile('robot')" disabled>
-                Upload Robot (Optional)
+                🤖 Add Robot Model
             </button>
         </div>
 
         <!-- Status Display -->
         <div id="statusDisplay"></div>
 
-        <!-- USD Creation Status -->
-        <div class="upload-section">
-            <h3>📊 USD Creation Status</h3>
-            <div id="usdCreationStatus">
-                <div class="analysis-item">
-                    <span>Polycam ZIP:</span>
-                    <span id="polycamStatus">❌ Not uploaded</span>
-                </div>
-                <div class="analysis-item">
-                    <span>Point Cloud:</span>
-                    <span id="pointcloudStatus">❌ Not uploaded</span>
-                </div>
-                <div class="analysis-item">
-                    <span>Robot (Optional):</span>
-                    <span id="robotStatus">⚪ Not uploaded</span>
-                </div>
-                <div class="analysis-item">
-                    <span><strong>USD Scene Ready:</strong></span>
-                    <span id="usdReadyStatus">❌ Missing required files</span>
-                </div>
-            </div>
-        </div>
-
         <!-- Scene Information -->
-        <div class="upload-section">
-            <h3>📊 Scene Information</h3>
-            <div id="sceneInfo">
-                <div class="analysis-item">
-                    <span>Total Objects:</span>
-                    <span id="totalObjects">0</span>
+        <div class="scene-info">
+            <h3>📊 Scene Assets</h3>
+            <div class="info-grid">
+                <div class="info-item">
+                    <span>Mesh Assets:</span>
+                    <span id="meshCount">0</span>
                 </div>
-                <div class="analysis-item">
-                    <span>Polycam Assets:</span>
-                    <span id="polycamAssetCount">0</span>
-                </div>
-                <div class="analysis-item">
+                <div class="info-item">
                     <span>Point Clouds:</span>
                     <span id="pointcloudCount">0</span>
                 </div>
-                <div class="analysis-item">
-                    <span>Robots:</span>
+                <div class="info-item">
+                    <span>Robot Models:</span>
                     <span id="robotCount">0</span>
                 </div>
+                <div class="info-item">
+                    <span>Total Objects:</span>
+                    <span id="totalObjects">0</span>
+                </div>
             </div>
-            <button class="analyze-btn" onclick="refreshSceneInfo()" style="margin-top: 15px;">🔄 Refresh</button>
-            <button class="analyze-btn" onclick="debugPointCloud()" style="margin-top: 15px; margin-left: 10px;">🔧 Debug</button>
+            <button class="refresh-btn" onclick="refreshSceneInfo()">🔄 Refresh Scene Info</button>
         </div>
     </div>
 
     <script>
-        // Configuration
+        // Configuration - Update this to match your EC2 instance
         const API_BASE_URL = 'http://ec2-3-132-234-13.us-east-2.compute.amazonaws.com:49101';
         
         let selectedFiles = {
-            polycam: null,
+            mesh: null,
             pointcloud: null,
             robot: null
-        };
-
-        let uploadStatus = {
-            polycam: false,
-            pointcloud: false,
-            robot: false
         };
 
         function handleFileSelect(input, type) {
@@ -406,51 +612,28 @@
                 
                 // Calculate file size
                 const fileSizeMB = file.size / 1024 / 1024;
-                const compressionTip = document.getElementById(`${type}CompressionTip`);
                 
                 let fileInfoHTML = `
                     <div class="selected-file">
-                        📄 ${file.name} (${formatFileSize(file.size)})
+                        📄 <strong>${file.name}</strong><br>
+                        Size: ${formatFileSize(file.size)}
                 `;
                 
                 // Add warnings for large files
-                if (fileSizeMB > 30) {
-                    fileInfoHTML += `<br><span class="large-file-warning">⚠️ Very large file - upload may take several minutes</span>`;
+                if (fileSizeMB > 50) {
+                    fileInfoHTML += `<br><span style="color: #e74c3c;">⚠️ File is very large - upload may take several minutes</span>`;
                 } else if (fileSizeMB > 20) {
-                    fileInfoHTML += `<br><span style="color: #e74c3c;">⚠️ Large file - may take longer to process</span>`;
-                }
-                
-                // Compression suggestions
-                if (type === 'pointcloud' && fileSizeMB > 10 && 
-                    !file.name.toLowerCase().includes('.gz') && 
-                    !file.name.toLowerCase().includes('.zip')) {
-                    fileInfoHTML += `<br><span style="color: #f39c12;">💡 Consider compressing for better performance</span>`;
-                }
-                
-                // Format detection
-                const ext = file.name.split('.').pop().toLowerCase();
-                if (type === 'pointcloud' && ['gz', 'zip'].includes(ext)) {
-                    fileInfoHTML += `<br><span style="color: #27ae60;">✅ Compressed format detected</span>`;
+                    fileInfoHTML += `<br><span style="color: #f39c12;">⚠️ Large file - may take longer to process</span>`;
                 }
                 
                 fileInfoHTML += `</div>`;
                 fileInfo.innerHTML = fileInfoHTML;
                 
-                // Show compression tip for large uncompressed point cloud files
-                if (type === 'pointcloud' && fileSizeMB > 10 && 
-                    !['gz', 'zip'].includes(ext)) {
-                    if (compressionTip) {
-                        compressionTip.classList.add('show');
-                    }
-                } else if (compressionTip) {
-                    compressionTip.classList.remove('show');
-                }
-                
                 uploadBtn.disabled = false;
                 
-                // Enable analyze button for Polycam
-                if (type === 'polycam') {
-                    document.getElementById('polycamAnalyzeBtn').disabled = false;
+                // Enable analyze button for mesh ZIP
+                if (type === 'mesh') {
+                    document.getElementById('meshAnalyzeBtn').disabled = false;
                 }
             }
         }
@@ -463,14 +646,14 @@
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         }
 
-        async function analyzePolycam() {
-            const file = selectedFiles.polycam;
+        async function analyzeMesh() {
+            const file = selectedFiles.mesh;
             if (!file) {
-                showStatus('error', 'No Polycam file selected');
+                showStatus('error', 'No mesh file selected');
                 return;
             }
 
-            const analyzeBtn = document.getElementById('polycamAnalyzeBtn');
+            const analyzeBtn = document.getElementById('meshAnalyzeBtn');
             analyzeBtn.disabled = true;
             analyzeBtn.textContent = 'Analyzing...';
 
@@ -478,7 +661,7 @@
                 const formData = new FormData();
                 formData.append('file', file);
 
-                const response = await fetch(`${API_BASE_URL}/polycam/extract`, {
+                const response = await fetch(`${API_BASE_URL}/debug/analyze-zip`, {
                     method: 'POST',
                     body: formData
                 });
@@ -486,7 +669,7 @@
                 const result = await response.json();
 
                 if (response.ok && result.success) {
-                    displayPolycamAnalysis(result.analysis);
+                    displayMeshAnalysis(result.analysis);
                 } else {
                     throw new Error(result.message || 'Analysis failed');
                 }
@@ -499,31 +682,44 @@
             }
         }
 
-        function displayPolycamAnalysis(analysis) {
-            const analysisDiv = document.getElementById('polycamAnalysis');
+        function displayMeshAnalysis(analysis) {
+            const analysisDiv = document.getElementById('meshAnalysis');
             
-            const hasObj = analysis.has_obj ? '✅' : '❌';
-            const hasMtl = analysis.has_mtl ? '✅' : '❌';
-            const textureCount = analysis.texture_count;
+            const hasObj = analysis.contents.obj_file ? '✅' : '❌';
+            const hasMtl = analysis.contents.mtl_file ? '✅' : '⚪';
+            const textureCount = analysis.contents.texture_count;
             
             analysisDiv.innerHTML = `
                 <div class="file-analysis">
-                    <h4>📋 Archive Contents:</h4>
+                    <h4>📋 ZIP Analysis Results:</h4>
+                    <div class="analysis-item">
+                        <span>Valid Archive:</span>
+                        <span>${analysis.valid ? '✅ Yes' : '❌ No'}</span>
+                    </div>
                     <div class="analysis-item">
                         <span>OBJ Mesh:</span>
-                        <span>${hasObj} ${analysis.files.obj || 'Not found'}</span>
+                        <span>${hasObj} ${analysis.contents.obj_file || 'Not found'}</span>
                     </div>
                     <div class="analysis-item">
                         <span>MTL Materials:</span>
-                        <span>${hasMtl} ${analysis.files.mtl || 'Not found'}</span>
+                        <span>${hasMtl} ${analysis.contents.mtl_file || 'Not found'}</span>
                     </div>
                     <div class="analysis-item">
                         <span>Textures:</span>
                         <span>${textureCount} file(s)</span>
                     </div>
+                    ${analysis.error ? `
+                        <div class="analysis-item">
+                            <span>Error:</span>
+                            <span style="color: #e74c3c;">${analysis.error}</span>
+                        </div>
+                    ` : ''}
                     ${textureCount > 0 ? `
-                        <div style="margin-top: 10px; font-size: 0.8em; color: #666;">
-                            Textures: ${analysis.files.textures.join(', ')}
+                        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee;">
+                            <strong>Texture Files:</strong><br>
+                            <span style="font-size: 0.85em; color: #666;">
+                                ${analysis.contents.texture_files.join(', ')}
+                            </span>
                         </div>
                     ` : ''}
                 </div>
@@ -546,22 +742,31 @@
             const isLargeFile = fileSizeMB > 10;
             
             if (isLargeFile) {
-                uploadBtn.textContent = 'Uploading large file...';
-                showStatus('loading', `Uploading ${file.name} (${fileSizeMB.toFixed(1)}MB) - this may take a moment...`);
+                uploadBtn.textContent = 'Processing large file...';
+                showStatus('loading', `Processing ${file.name} (${fileSizeMB.toFixed(1)}MB) - this may take a moment...`);
                 if (progressIndicator) {
                     progressIndicator.style.display = 'block';
                 }
             } else {
-                uploadBtn.textContent = 'Uploading...';
-                showStatus('loading', `Uploading ${file.name}...`);
+                uploadBtn.textContent = 'Processing...';
+                showStatus('loading', `Processing ${file.name}...`);
             }
 
             try {
                 const formData = new FormData();
                 formData.append('file', file);
 
-                const endpoint = type === 'polycam' ? 'polycam' : type;
-                const response = await fetch(`${API_BASE_URL}/${endpoint}/import`, {
+                // Use the appropriate endpoint based on file type
+                let endpoint;
+                if (type === 'mesh') {
+                    endpoint = 'mesh/import';
+                } else if (type === 'pointcloud') {
+                    endpoint = 'pointcloud/import';
+                } else if (type === 'robot') {
+                    endpoint = 'robot/import';
+                }
+
+                const response = await fetch(`${API_BASE_URL}/${endpoint}`, {
                     method: 'POST',
                     body: formData
                 });
@@ -569,14 +774,21 @@
                 const result = await response.json();
 
                 if (response.ok && result.success) {
-                    uploadStatus[type] = true;
-                    updateUploadStatus();
-                    
-                    // Check if USD creation was triggered
-                    if (result.batch_status && result.batch_status.usd_creation_triggered) {
-                        showStatus('success', `✅ ${result.message} - USD scene creation started!`);
+                    if (type === 'mesh') {
+                        showStatus('success', `✅ ${result.message} - USD asset created and imported to scene!`);
                     } else {
                         showStatus('success', `✅ ${result.message}`);
+                    }
+                    
+                    // Clear the file selection after successful upload
+                    selectedFiles[type] = null;
+                    document.getElementById(`${type}File`).value = '';
+                    document.getElementById(`${type}FileInfo`).innerHTML = '';
+                    
+                    // Clear analysis if it was a mesh file
+                    if (type === 'mesh') {
+                        document.getElementById('meshAnalysis').innerHTML = '';
+                        document.getElementById('meshAnalyzeBtn').disabled = true;
                     }
                     
                     refreshSceneInfo();
@@ -596,25 +808,10 @@
         }
 
         function getUploadButtonText(type) {
-            if (type === 'polycam') return 'Upload Polycam ZIP';
-            if (type === 'pointcloud') return 'Upload Point Cloud';
-            if (type === 'robot') return 'Upload Robot (Optional)';
+            if (type === 'mesh') return '🚀 Upload & Create USD Asset';
+            if (type === 'pointcloud') return '📊 Add Point Cloud';
+            if (type === 'robot') return '🤖 Add Robot Model';
             return `Upload ${type.charAt(0).toUpperCase() + type.slice(1)}`;
-        }
-
-        function updateUploadStatus() {
-            // Update individual status indicators
-            document.getElementById('polycamStatus').innerHTML = 
-                uploadStatus.polycam ? '✅ Uploaded' : '❌ Not uploaded';
-            document.getElementById('pointcloudStatus').innerHTML = 
-                uploadStatus.pointcloud ? '✅ Uploaded' : '❌ Not uploaded';
-            document.getElementById('robotStatus').innerHTML = 
-                uploadStatus.robot ? '✅ Uploaded' : '⚪ Not uploaded';
-            
-            // Update USD ready status
-            const usdReady = uploadStatus.polycam && uploadStatus.pointcloud;
-            document.getElementById('usdReadyStatus').innerHTML = 
-                usdReady ? '✅ Ready for USD creation!' : '❌ Missing required files';
         }
 
         function showStatus(type, message) {
@@ -632,92 +829,57 @@
 
         async function refreshSceneInfo() {
             try {
-                const response = await fetch(`${API_BASE_URL}/scene/info`);
+                const response = await fetch(`${API_BASE_URL}/assets`);
                 const data = await response.json();
                 
                 if (response.ok) {
-                    document.getElementById('totalObjects').textContent = data.total_objects;
-                    document.getElementById('polycamAssetCount').textContent = data.objects_by_type.polycam_asset || 0;
-                    document.getElementById('pointcloudCount').textContent = data.objects_by_type.pointcloud || 0;
-                    document.getElementById('robotCount').textContent = data.objects_by_type.robot || 0;
+                    // Count different types of assets
+                    const meshAssets = data.scene_objects.filter(obj => obj.type === 'mesh_asset').length;
+                    const pointClouds = data.scene_objects.filter(obj => obj.type === 'pointcloud').length;
+                    const robots = data.scene_objects.filter(obj => obj.type === 'robot').length;
                     
-                    // Update upload status from server if available
-                    if (data.status && data.status.uploaded_files) {
-                        const serverStatus = data.status.uploaded_files;
-                        uploadStatus.polycam = serverStatus.polycam_zip !== null;
-                        uploadStatus.pointcloud = serverStatus.pointcloud !== null;
-                        uploadStatus.robot = serverStatus.robot !== null;
-                        updateUploadStatus();
-                    }
+                    document.getElementById('meshCount').textContent = meshAssets;
+                    document.getElementById('pointcloudCount').textContent = pointClouds;
+                    document.getElementById('robotCount').textContent = robots;
+                    document.getElementById('totalObjects').textContent = data.scene_objects.length;
                 }
             } catch (error) {
                 console.error('Failed to refresh scene info:', error);
             }
         }
 
-        async function debugPointCloud() {
-            const file = selectedFiles.pointcloud;
-            if (!file) {
-                showStatus('error', 'No point cloud file selected for debugging');
-                return;
-            }
-
-            showStatus('loading', 'Running debug analysis...');
-
-            try {
-                const formData = new FormData();
-                formData.append('file', file);
-
-                const response = await fetch(`${API_BASE_URL}/debug/pointcloud`, {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const result = await response.json();
-
-                if (response.ok && result.success) {
-                    const analysis = result.analysis;
-                    let debugMessage = `Debug Results:
-- File: ${analysis.filename}
-- Size: ${analysis.file_size_mb} MB
-- Format: ${analysis.file_extension}
-- Compression: ${analysis.compression_detected ? 'Yes' : 'No'}
-- Points loaded: ${analysis.points_loaded || 'Failed'}
-- Processing time: ${analysis.processing_time.toFixed(2)}s`;
-
-                    if (analysis.error) {
-                        debugMessage += `\n- Error: ${analysis.error}`;
-                    }
-
-                    showStatus('success', debugMessage);
-                } else {
-                    throw new Error(result.message || 'Debug failed');
-                }
-            } catch (error) {
-                showStatus('error', `Debug error: ${error.message}`);
-            }
-        }
-
         async function checkConnection() {
+            const connectionStatus = document.getElementById('connectionStatus');
+            
             try {
                 const response = await fetch(`${API_BASE_URL}/health`);
                 const data = await response.json();
                 
                 if (response.ok) {
-                    showStatus('success', '🟢 Connected to RoWorks API with compression support');
+                    connectionStatus.className = 'connection-status connected';
+                    connectionStatus.innerHTML = `
+                        <div class="status-dot green"></div>
+                        <span>🟢 Connected to RoWorks API v${data.version || '2.0'}</span>
+                    `;
                     refreshSceneInfo();
                 } else {
                     throw new Error('API not responding');
                 }
             } catch (error) {
-                showStatus('error', `🔴 Cannot connect to API. Make sure RoWorks app is running.`);
+                connectionStatus.className = 'connection-status disconnected';
+                connectionStatus.innerHTML = `
+                    <div class="status-dot red"></div>
+                    <span>🔴 Cannot connect to RoWorks API - Make sure the app is running</span>
+                `;
             }
         }
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             checkConnection();
-            updateUploadStatus(); // Initialize status display
+            
+            // Check connection every 30 seconds
+            setInterval(checkConnection, 30000);
         });
 
         // Drag and drop functionality
