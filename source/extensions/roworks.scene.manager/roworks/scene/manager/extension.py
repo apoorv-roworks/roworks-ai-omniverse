@@ -16,7 +16,7 @@ class SceneObject:
     """Represents an object in the scene"""
     def __init__(self, name: str, object_type: str, prim_path: str, file_path: str = None):
         self.name = name
-        self.object_type = object_type  # mesh, pointcloud, robot
+        self.object_type = object_type  # polycam_asset, pointcloud, robot, usd_asset
         self.prim_path = prim_path
         self.file_path = file_path
         self.imported = False
@@ -33,13 +33,13 @@ class SceneObject:
         }
 
 class RoWorksSceneManager:
-    """Enhanced scene manager with USD operations"""
+    """Enhanced scene manager with USD operations for Polycam workflow"""
     
     def __init__(self):
         self._scene_objects: Dict[str, SceneObject] = {}
         self.context = omni.usd.get_context()
         self._stage = None
-        logger.info("RoWorks Scene Manager initialized with USD support")
+        logger.info("RoWorks Scene Manager initialized for Polycam USD workflow")
     
     def get_stage(self) -> Optional[Usd.Stage]:
         """Get the current USD stage"""
@@ -81,6 +81,42 @@ class RoWorksSceneManager:
         stats["objects"] = [obj.to_dict() for obj in self._scene_objects.values()]
         
         return stats
+    
+    def import_polycam_asset(self, zip_path: str, asset_name: str) -> Optional[SceneObject]:
+        """Import a Polycam ZIP file as USD asset"""
+        try:
+            stage = self.get_stage()
+            if not stage:
+                logger.error("No USD stage available")
+                return None
+            
+            # Generate safe prim path
+            safe_name = self._sanitize_name(asset_name)
+            prim_path = f"/World/RoWorks/PolycamAssets/{safe_name}"
+            
+            # Create scene object
+            scene_obj = SceneObject(asset_name, "polycam_asset", prim_path, zip_path)
+            
+            # For now, create a placeholder that represents the Polycam asset
+            success = self._create_polycam_placeholder(prim_path, asset_name)
+            
+            if success:
+                scene_obj.imported = True
+                scene_obj.metadata.update({
+                    "asset_type": "polycam_zip",
+                    "source_file": zip_path,
+                    "import_method": "extracted_placeholder"
+                })
+                
+                self.add_scene_object(scene_obj)
+                logger.info(f"Successfully imported Polycam asset: {asset_name}")
+                return scene_obj
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error importing Polycam asset {asset_name}: {e}")
+            return None
     
     def import_mesh_file(self, file_path: str, file_name: str) -> Optional[SceneObject]:
         """Import a mesh file into the scene"""
@@ -186,6 +222,49 @@ class RoWorksSceneManager:
             logger.error(f"Error importing robot {file_name}: {e}")
             return None
     
+    def import_usd_asset(self, usd_path: str, asset_name: str) -> Optional[SceneObject]:
+        """Import a USD asset into the scene"""
+        try:
+            stage = self.get_stage()
+            if not stage:
+                logger.error("No USD stage available")
+                return None
+            
+            # Generate safe prim path
+            safe_name = self._sanitize_name(asset_name)
+            prim_path = f"/World/RoWorks/USDAssets/{safe_name}"
+            
+            # Create scene object
+            scene_obj = SceneObject(asset_name, "usd_asset", prim_path, usd_path)
+            
+            # Create reference to USD file
+            success = omni.kit.commands.execute(
+                'CreateReference',
+                usd_context=self.context,
+                path_to=prim_path,
+                asset_path=usd_path,
+                instanceable=False
+            )
+            
+            if success:
+                scene_obj.imported = True
+                scene_obj.metadata.update({
+                    "asset_type": "usd_reference",
+                    "source_file": usd_path,
+                    "import_method": "reference"
+                })
+                
+                self.add_scene_object(scene_obj)
+                logger.info(f"Successfully imported USD asset: {asset_name}")
+                return scene_obj
+            else:
+                logger.error(f"Failed to create USD reference for {asset_name}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error importing USD asset {asset_name}: {e}")
+            return None
+    
     def _import_obj_file(self, file_path: str, prim_path: str, file_name: str) -> bool:
         """Import OBJ file"""
         try:
@@ -238,6 +317,34 @@ class RoWorksSceneManager:
             return success
         except Exception as e:
             logger.error(f"Error importing FBX: {e}")
+            return False
+    
+    def _create_polycam_placeholder(self, prim_path: str, file_name: str) -> bool:
+        """Create a placeholder for Polycam asset"""
+        try:
+            stage = self.get_stage()
+            
+            # Create Xform for the asset
+            xform_prim = UsdGeom.Xform.Define(stage, prim_path)
+            
+            # Add metadata
+            prim = xform_prim.GetPrim()
+            prim.CreateAttribute("roworks:source_file", Sdf.ValueTypeNames.String).Set(file_name)
+            prim.CreateAttribute("roworks:file_type", Sdf.ValueTypeNames.String).Set("polycam_asset")
+            
+            # Create a distinctive shape for Polycam assets
+            cube_path = prim_path + "/geometry"
+            cube = UsdGeom.Cube.Define(stage, cube_path)
+            cube.CreateSizeAttr(2.0)
+            
+            # Use green color for Polycam assets
+            cube.CreateDisplayColorAttr([(0.2, 0.8, 0.4)])  # Green
+            
+            logger.info(f"Created Polycam placeholder for: {file_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error creating Polycam placeholder: {e}")
             return False
     
     def _create_mesh_placeholder(self, prim_path: str, file_name: str) -> bool:
@@ -424,6 +531,21 @@ class RoWorksSceneManager:
         except Exception as e:
             logger.error(f"Error removing scene object: {e}")
             return False
+    
+    def _sanitize_name(self, name: str) -> str:
+        """Create safe USD prim name"""
+        import re
+        # Remove file extension
+        name = Path(name).stem if isinstance(name, str) else str(name)
+        # Replace invalid characters with underscores
+        name = re.sub(r'[^a-zA-Z0-9_]', '_', name)
+        # Ensure it doesn't start with a number
+        if name and name[0].isdigit():
+            name = f"Asset_{name}"
+        # Ensure it's not empty
+        if not name:
+            name = "UnnamedAsset"
+        return name
 
 # Global variable to store scene manager (simple approach)
 _global_scene_manager = None
@@ -437,7 +559,11 @@ class RoWorksSceneManagerExtension(omni.ext.IExt):
         self._scene_manager = RoWorksSceneManager()
         _global_scene_manager = self._scene_manager
         
-        print("📦 Scene Manager ready for 3D object import and management")
+        print("📦 Scene Manager ready for Polycam USD workflow")
+        print("  - Polycam ZIP assets")
+        print("  - Point cloud data")
+        print("  - Robot models (optional)")
+        print("  - Standard mesh/USD files")
         
     def on_shutdown(self):
         global _global_scene_manager
@@ -447,3 +573,8 @@ class RoWorksSceneManagerExtension(omni.ext.IExt):
 def get_scene_manager() -> Optional[RoWorksSceneManager]:
     """Get the global scene manager instance"""
     return _global_scene_manager
+
+# Public API functions for compatibility
+def some_public_function(x):
+    """Legacy function for compatibility"""
+    return x * x * x * x
