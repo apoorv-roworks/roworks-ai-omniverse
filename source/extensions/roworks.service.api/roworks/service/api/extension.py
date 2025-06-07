@@ -1,3 +1,6 @@
+# Complete Service API Extension for RoWorks AI Omniverse - With All Fixes
+# File: source/extensions/roworks.service.api/roworks/service/api/extension.py
+
 import omni.ext
 import logging
 import asyncio
@@ -7,6 +10,7 @@ import os
 import re
 import time
 import zipfile
+import shutil
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 
@@ -28,13 +32,236 @@ from pxr import Usd, UsdGeom, UsdShade, Sdf, Gf
 
 logger = logging.getLogger(__name__)
 
+
+class USDAnalyzer:
+    """Quick USD file analyzer to prevent hanging imports"""
+    
+    @staticmethod
+    def quick_usd_check(usd_path: str) -> Tuple[bool, str]:
+        """Quick check if USD file might cause hanging"""
+        try:
+            if not os.path.exists(usd_path):
+                return False, "File does not exist"
+            
+            # File size check
+            file_size_mb = os.path.getsize(usd_path) / (1024 * 1024)
+            if file_size_mb > 200:
+                return False, f"Large USD file ({file_size_mb:.1f}MB) may cause hanging"
+            
+            # Try to open stage quickly
+            stage = Usd.Stage.Open(usd_path)
+            if not stage:
+                return False, "Cannot open USD stage"
+            
+            # Quick prim count check
+            prim_count = len(list(stage.TraverseAll()))
+            if prim_count > 15000:
+                return False, f"High prim count ({prim_count}) may cause hanging"
+            
+            # Check for extremely complex meshes
+            vertex_count = 0
+            for prim in stage.Traverse():
+                if prim.IsA(UsdGeom.Mesh):
+                    mesh = UsdGeom.Mesh(prim)
+                    points_attr = mesh.GetPointsAttr()
+                    if points_attr:
+                        points = points_attr.Get()
+                        if points:
+                            vertex_count += len(points)
+                            if vertex_count > 2000000:  # 2M vertices
+                                return False, f"High vertex count ({vertex_count}) may cause hanging"
+            
+            print(f"✅ USD file looks OK ({file_size_mb:.1f}MB, {prim_count} prims, {vertex_count} vertices)")
+            return True, "File appears safe to import"
+            
+        except Exception as e:
+            return False, f"USD check error: {str(e)}"
+
+
+class NonBlockingUSDImporter:
+    """Simplified non-blocking USD importer"""
+    
+    def __init__(self):
+        self.import_queue = []
+        self.is_importing = False
+        self.import_timeout = 30.0  # 30 seconds
+        
+    def schedule_import(self, usd_path: str, asset_name: str, callback=None):
+        """Schedule USD import without blocking"""
+        # Quick safety check first
+        is_safe, message = USDAnalyzer.quick_usd_check(usd_path)
+        if not is_safe:
+            print(f"❌ USD import rejected: {message}")
+            if callback:
+                callback(False, asset_name, message)
+            return None
+        
+        import_task = {
+            "usd_path": usd_path,
+            "asset_name": asset_name,
+            "callback": callback,
+            "status": "queued"
+        }
+        
+        self.import_queue.append(import_task)
+        
+        # Start processing if not already running
+        if not self.is_importing:
+            asyncio.ensure_future(self._process_import_queue())
+            
+        print(f"🔧 USD import queued: {asset_name}")
+        return import_task
+    
+    async def _process_import_queue(self):
+        """Process import queue with proper async handling"""
+        if self.is_importing:
+            return
+            
+        self.is_importing = True
+        app = omni.kit.app.get_app()
+        
+        try:
+            while self.import_queue:
+                task = self.import_queue.pop(0)
+                
+                print(f"🔧 Processing USD import: {task['asset_name']}")
+                task["status"] = "processing"
+                
+                try:
+                    success, error_msg = await self._import_via_reference(
+                        task["usd_path"], 
+                        task["asset_name"]
+                    )
+                    
+                    if success:
+                        task["status"] = "completed"
+                        print(f"✅ USD import completed: {task['asset_name']}")
+                        
+                        if task["callback"]:
+                            task["callback"](True, task["asset_name"], "Import successful")
+                    else:
+                        task["status"] = "failed"
+                        print(f"❌ USD import failed: {task['asset_name']} - {error_msg}")
+                        
+                        if task["callback"]:
+                            task["callback"](False, task["asset_name"], error_msg)
+                    
+                    # Yield control between imports
+                    await app.next_update_async()
+                    await asyncio.sleep(0.2)  # Brief pause between imports
+                    
+                except Exception as e:
+                    print(f"❌ USD import error: {e}")
+                    task["status"] = "error"
+                    
+                    if task["callback"]:
+                        task["callback"](False, task["asset_name"], str(e))
+                    
+                    continue
+                    
+        finally:
+            self.is_importing = False
+    
+    async def _import_via_reference(self, usd_path: str, asset_name: str) -> Tuple[bool, str]:
+        """Import by adding USD as reference to current stage"""
+        try:
+            app = omni.kit.app.get_app()
+            context = omni.usd.get_context()
+            
+            # Apply timeout to the entire import process
+            success, error = await asyncio.wait_for(
+                self._do_reference_import(context, usd_path, asset_name),
+                timeout=self.import_timeout
+            )
+            
+            return success, error
+            
+        except asyncio.TimeoutError:
+            return False, f"Import timeout after {self.import_timeout} seconds"
+        except Exception as e:
+            return False, f"Import error: {str(e)}"
+    
+    async def _do_reference_import(self, context, usd_path: str, asset_name: str) -> Tuple[bool, str]:
+        """Actual reference import implementation"""
+        app = omni.kit.app.get_app()
+        
+        stage = context.get_stage()
+        if not stage:
+            # Create new stage if none exists
+            context.new_stage()
+            await app.next_update_async()
+            stage = context.get_stage()
+            
+            if not stage:
+                return False, "Cannot get or create stage"
+        
+        # Create safe prim path
+        safe_name = self._sanitize_name(asset_name)
+        prim_path = f"/World/RoWorks/Assets/{safe_name}"
+        
+        print(f"🔧 Creating reference at: {prim_path}")
+        
+        # Ensure parent path exists
+        await self._ensure_path_exists(stage, "/World/RoWorks/Assets")
+        await app.next_update_async()
+        
+        # Remove existing prim if it exists
+        if stage.GetPrimAtPath(prim_path):
+            stage.RemovePrim(prim_path)
+            await app.next_update_async()
+        
+        # Create prim and add reference
+        prim = stage.DefinePrim(prim_path, "Xform")
+        await app.next_update_async()
+        
+        # Add reference
+        print("🔧 Adding USD reference...")
+        prim.GetReferences().AddReference(usd_path)
+        await app.next_update_async()
+        
+        # Add metadata
+        prim.CreateAttribute("roworks:source_file", Sdf.ValueTypeNames.String).Set(usd_path)
+        prim.CreateAttribute("roworks:asset_type", Sdf.ValueTypeNames.String).Set("usd_asset")
+        await app.next_update_async()
+        
+        print(f"✅ USD reference added: {prim_path}")
+        return True, "Reference created successfully"
+    
+    async def _ensure_path_exists(self, stage, path: str):
+        """Ensure USD path exists"""
+        parts = path.strip('/').split('/')
+        current_path = ""
+        
+        for part in parts:
+            current_path += f"/{part}"
+            if not stage.GetPrimAtPath(current_path):
+                stage.DefinePrim(current_path, "Xform")
+    
+    def _sanitize_name(self, name: str) -> str:
+        """Create safe USD prim name"""
+        name = Path(name).stem if isinstance(name, str) else str(name)
+        name = re.sub(r'[^a-zA-Z0-9_]', '_', name)
+        if name and name[0].isdigit():
+            name = f"Asset_{name}"
+        return name or "UnnamedAsset"
+    
+    def get_status(self) -> Dict[str, Any]:
+        """Get importer status"""
+        return {
+            "queue_length": len(self.import_queue),
+            "is_importing": self.is_importing,
+            "queued_imports": [task["asset_name"] for task in self.import_queue]
+        }
+
+
 class MeshUSDManager:
-    """Manages mesh ZIP uploads (OBJ+MTL+textures) and creates USD assets"""
+    """Manages mesh ZIP uploads (OBJ+MTL+textures) and creates USD assets with texture fixes"""
     
     def __init__(self):
         print("🔧 DEBUG: Initializing MeshUSDManager for OBJ+MTL+texture workflow")
         self.uploaded_assets = []
         self.temp_dir = tempfile.mkdtemp(prefix="roworks_mesh_")
+        self.usd_importer = NonBlockingUSDImporter()
         
         # Use existing scene manager if available
         self.scene_manager = None
@@ -71,7 +298,7 @@ class MeshUSDManager:
             usd_result = self._create_usd_asset(extracted, asset_name, filename, file_size)
             
             if usd_result['success']:
-                # Schedule USD import into scene
+                # Schedule USD import
                 self._schedule_usd_import(usd_result['usd_path'], asset_name)
                 
                 # Track the asset
@@ -82,7 +309,9 @@ class MeshUSDManager:
                     "usd_path": usd_result['usd_path'],
                     "extracted_files": extracted['files'],
                     "created_at": time.time(),
-                    "imported_to_scene": False
+                    "imported_to_scene": False,
+                    "import_status": "scheduled",
+                    "import_message": "Import scheduled"
                 }
                 self.uploaded_assets.append(asset_info)
                 
@@ -165,7 +394,7 @@ class MeshUSDManager:
             return result
     
     def _create_usd_asset(self, extracted: Dict, asset_name: str, filename: str, file_size: int) -> Dict:
-        """Create USD file from extracted mesh data"""
+        """Create USD file from extracted mesh data with proper texture handling"""
         try:
             # Create USD output path
             usd_dir = os.path.join(self.temp_dir, "usd_assets")
@@ -173,6 +402,9 @@ class MeshUSDManager:
             usd_path = os.path.join(usd_dir, f"{asset_name}.usd")
             
             print(f"🔧 DEBUG: Creating USD file: {usd_path}")
+            print(f"📁 DEBUG: Available textures: {len(extracted['files']['texture_files'])}")
+            for tex in extracted['files']['texture_files']:
+                print(f"    - {Path(tex).name}")
             
             # Create USD stage
             stage = Usd.Stage.CreateNew(usd_path)
@@ -191,10 +423,11 @@ class MeshUSDManager:
                 'source': 'roworks_mesh_zip',
                 'original_filename': filename,
                 'file_size': file_size,
-                'created_by': 'roworks_ai_omniverse'
+                'created_by': 'roworks_ai_omniverse',
+                'texture_count': len(extracted['files']['texture_files'])
             })
             
-            # Import mesh
+            # Import mesh with improved material handling
             mesh_success = self._import_obj_to_usd(
                 stage,
                 extracted['files']['obj_file'],
@@ -213,6 +446,10 @@ class MeshUSDManager:
             stage.Save()
             
             print(f"✅ DEBUG: USD asset created successfully: {usd_path}")
+            
+            # Verify textures are accessible
+            self._verify_usd_textures(usd_path)
+            
             return {
                 "success": True,
                 "usd_path": usd_path
@@ -220,6 +457,8 @@ class MeshUSDManager:
             
         except Exception as e:
             print(f"❌ DEBUG: Error creating USD asset: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 "success": False,
                 "error": f"USD creation failed: {str(e)}"
@@ -227,9 +466,11 @@ class MeshUSDManager:
     
     def _import_obj_to_usd(self, stage, obj_path: str, mtl_path: Optional[str], 
                           texture_paths: List[str], mesh_prim_path: str) -> bool:
-        """Import OBJ file with materials to USD"""
+        """Import OBJ file with materials to USD with better texture handling"""
         try:
             print(f"🔧 DEBUG: Importing OBJ to USD: {Path(obj_path).name}")
+            print(f"🎨 DEBUG: MTL file: {'✓' if mtl_path else '❌'}")
+            print(f"🖼️ DEBUG: Textures: {len(texture_paths)} files")
             
             # Parse OBJ file
             vertices, faces, uvs, normals = self._parse_obj_file(obj_path)
@@ -247,24 +488,26 @@ class MeshUSDManager:
             mesh.CreateFaceVertexIndicesAttr().Set(faces)
             mesh.CreateFaceVertexCountsAttr().Set([3] * (len(faces) // 3))  # Assuming triangles
             
-            # Set UV coordinates if available
+            # Set UV coordinates if available - CRITICAL for textures
+            uv_success = False
             if uvs:
                 try:
-                    # Create primvar using the correct API
                     primvars_api = UsdGeom.PrimvarsAPI(mesh_prim)
                     uv_primvar = primvars_api.CreatePrimvar("st", Sdf.ValueTypeNames.TexCoord2fArray)
                     uv_primvar.Set(uvs)
                     uv_primvar.SetInterpolation(UsdGeom.Tokens.faceVarying)
+                    uv_success = True
                     print("✅ DEBUG: UV coordinates set successfully")
                 except Exception as e:
                     print(f"⚠️ DEBUG: Could not set UV coordinates: {e}")
-                    # Fallback - try alternative method
+                    # Try alternative method
                     try:
                         mesh.GetPrim().CreateAttribute("primvars:st", Sdf.ValueTypeNames.TexCoord2fArray).Set(uvs)
                         mesh.GetPrim().CreateAttribute("primvars:st:interpolation", Sdf.ValueTypeNames.Token).Set("faceVarying")
+                        uv_success = True
                         print("✅ DEBUG: UV coordinates set via fallback method")
                     except Exception as e2:
-                        print(f"⚠️ DEBUG: Fallback UV method also failed: {e2}")
+                        print(f"⚠️ DEBUG: All UV methods failed: {e2}")
             
             # Set normals if available
             if normals:
@@ -274,45 +517,44 @@ class MeshUSDManager:
                     print("✅ DEBUG: Normals set successfully")
                 except Exception as e:
                     print(f"⚠️ DEBUG: Could not set normals: {e}")
-                    # Try vertex interpolation as fallback
-                    try:
-                        mesh.CreateNormalsAttr().Set(normals)
-                        mesh.SetNormalsInterpolation(UsdGeom.Tokens.vertex)
-                        print("✅ DEBUG: Normals set with vertex interpolation")
-                    except Exception as e2:
-                        print(f"⚠️ DEBUG: Fallback normals method also failed: {e2}")
             
-            # Create and bind material
-            if mtl_path or texture_paths:
+            # Create and bind material - ONLY if we have textures and UVs
+            material_created = False
+            if texture_paths and uv_success:
                 try:
                     material_success = self._create_usd_material(
                         stage, mtl_path, texture_paths, mesh_prim_path, mesh_prim
                     )
                     if material_success:
-                        print("✅ DEBUG: Material created and bound successfully")
+                        material_created = True
+                        print("✅ DEBUG: Material with textures created successfully")
                     else:
-                        print("⚠️ DEBUG: Material creation failed, using default")
+                        print("⚠️ DEBUG: Material creation failed")
                 except Exception as e:
                     print(f"⚠️ DEBUG: Material creation error: {e}")
-                    # Create simple default material
-                    try:
-                        mesh.CreateDisplayColorAttr().Set([(0.7, 0.7, 0.7)])
-                        print("✅ DEBUG: Default display color applied")
-                    except Exception as e2:
-                        print(f"⚠️ DEBUG: Even default color failed: {e2}")
-            else:
-                # No materials, just set a default color
-                try:
-                    mesh.CreateDisplayColorAttr().Set([(0.8, 0.8, 0.8)])
-                    print("✅ DEBUG: Default gray color applied")
-                except Exception as e:
-                    print(f"⚠️ DEBUG: Could not set default color: {e}")
             
-            print(f"✅ DEBUG: Mesh imported - {len(vertices)} vertices, {len(faces)//3} faces")
+            # Fallback: Create simple colored material
+            if not material_created:
+                try:
+                    if texture_paths:
+                        # We had textures but failed to apply them
+                        mesh.CreateDisplayColorAttr().Set([(1.0, 0.8, 0.6)])  # Light orange to indicate issue
+                        print("🟠 DEBUG: Applied orange color (texture issue)")
+                    else:
+                        # No textures available
+                        mesh.CreateDisplayColorAttr().Set([(0.8, 0.8, 0.8)])  # Gray
+                        print("⚫ DEBUG: Applied gray color (no textures)")
+                except Exception as e:
+                    print(f"⚠️ DEBUG: Could not set fallback color: {e}")
+            
+            print(f"✅ DEBUG: Mesh imported - {len(vertices)} vertices, {len(faces)//3} faces, "
+                  f"UVs: {'✓' if uv_success else '❌'}, Material: {'✓' if material_created else '❌'}")
             return True
             
         except Exception as e:
             print(f"❌ DEBUG: Error importing OBJ to USD: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def _parse_obj_file(self, obj_path: str) -> Tuple[List, List, List, List]:
@@ -367,11 +609,13 @@ class MeshUSDManager:
     
     def _create_usd_material(self, stage, mtl_path: Optional[str], texture_paths: List[str],
                            mesh_prim_path: str, mesh_prim) -> bool:
-        """Create USD material from MTL and textures"""
+        """Create USD material from MTL and textures with ABSOLUTE paths"""
         try:
             # Create material path
             material_name = f"{Path(mesh_prim_path).name}_Material"
             material_path = f"/Materials/{material_name}"
+            
+            print(f"🎨 DEBUG: Creating material: {material_path}")
             
             # Create material
             material_prim = stage.DefinePrim(material_path, "Material")
@@ -392,254 +636,175 @@ class MeshUSDManager:
             if texture_paths:
                 texture_path = texture_paths[0]
                 
-                # Create texture shader
-                texture_shader_path = f"{material_path}/DiffuseTexture"
-                texture_prim = stage.DefinePrim(texture_shader_path, "Shader")
-                texture_shader = UsdShade.Shader(texture_prim)
-                texture_shader.CreateIdAttr("UsdUVTexture")
-                texture_shader.CreateInput("file", Sdf.ValueTypeNames.Asset).Set(texture_path)
+                # CRITICAL FIX: Convert to absolute path and copy texture to persistent location
+                persistent_texture_path = self._copy_texture_to_persistent_location(texture_path, material_name)
                 
-                # Create primvar reader for UV coordinates
-                primvar_path = f"{material_path}/PrimvarReader"
-                primvar_prim = stage.DefinePrim(primvar_path, "Shader")
-                primvar_shader = UsdShade.Shader(primvar_prim)
-                primvar_shader.CreateIdAttr("UsdPrimvarReader_float2")
-                primvar_shader.CreateInput("varname", Sdf.ValueTypeNames.Token).Set("st")
-                
-                # Connect UV coordinates to texture
-                texture_shader.CreateInput("st", Sdf.ValueTypeNames.Float2).ConnectToSource(
-                    primvar_shader.ConnectableAPI(), "result"
-                )
-                
-                # Connect texture to material
-                shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).ConnectToSource(
-                    texture_shader.ConnectableAPI(), "rgb"
-                )
-                
-                print(f"✅ DEBUG: Created material with texture: {Path(texture_path).name}")
+                if persistent_texture_path:
+                    print(f"🖼️ DEBUG: Using texture: {persistent_texture_path}")
+                    
+                    # Create texture shader
+                    texture_shader_path = f"{material_path}/DiffuseTexture"
+                    texture_prim = stage.DefinePrim(texture_shader_path, "Shader")
+                    texture_shader = UsdShade.Shader(texture_prim)
+                    texture_shader.CreateIdAttr("UsdUVTexture")
+                    
+                    # IMPORTANT: Use absolute path for texture
+                    texture_shader.CreateInput("file", Sdf.ValueTypeNames.Asset).Set(persistent_texture_path)
+                    
+                    # Create primvar reader for UV coordinates
+                    primvar_path = f"{material_path}/PrimvarReader"
+                    primvar_prim = stage.DefinePrim(primvar_path, "Shader")
+                    primvar_shader = UsdShade.Shader(primvar_prim)
+                    primvar_shader.CreateIdAttr("UsdPrimvarReader_float2")
+                    primvar_shader.CreateInput("varname", Sdf.ValueTypeNames.Token).Set("st")
+                    
+                    # Connect UV coordinates to texture
+                    texture_shader.CreateInput("st", Sdf.ValueTypeNames.Float2).ConnectToSource(
+                        primvar_shader.ConnectableAPI(), "result"
+                    )
+                    
+                    # Connect texture to material
+                    shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).ConnectToSource(
+                        texture_shader.ConnectableAPI(), "rgb"
+                    )
+                    
+                    # Also try to set opacity if the texture has alpha
+                    if texture_path.lower().endswith(('.png', '.tga')):
+                        shader.CreateInput("opacity", Sdf.ValueTypeNames.Float).ConnectToSource(
+                            texture_shader.ConnectableAPI(), "a"
+                        )
+                    
+                    print(f"✅ DEBUG: Created material with texture: {Path(persistent_texture_path).name}")
+                else:
+                    print("⚠️ DEBUG: Failed to copy texture, using default color")
+                    shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set((0.7, 0.7, 0.7))
             else:
-                # Default gray color
-                shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set((0.7, 0.7, 0.7))
+                # Default color when no textures
+                shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set((0.8, 0.8, 0.8))
                 print("✅ DEBUG: Created material with default color")
             
             # Create material output
             material.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
             
             # Bind material to mesh
-            UsdShade.MaterialBindingAPI(mesh_prim).Bind(material)
+            binding_api = UsdShade.MaterialBindingAPI(mesh_prim)
+            binding_api.Bind(material)
             
+            print("✅ DEBUG: Material bound to mesh successfully")
             return True
             
         except Exception as e:
             print(f"❌ DEBUG: Error creating USD material: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
-    def _schedule_usd_import(self, usd_path: str, asset_name: str):
-        """Schedule USD asset import using correct Omniverse commands"""
-        print(f"🔧 DEBUG: Scheduling USD import with correct commands: {asset_name}")
-        
-        def import_with_correct_commands():
-            """Import using the right Omniverse commands"""
-            try:
-                import time
-                import omni.kit.commands
-                import omni.usd
-                
-                print("🔧 DEBUG: Starting correct command-based import")
-                time.sleep(1)  # Brief delay
-                
-                # Get context
-                context = omni.usd.get_context()
-                if not context:
-                    print("❌ DEBUG: No USD context available")
-                    return
-                
-                print(f"🔧 DEBUG: Attempting to open USD file: {usd_path}")
-                
-                try:
-                    # Method 1: Use the correct open_stage method
-                    result = context.open_stage(usd_path)
-                    if result:
-                        print("✅ DEBUG: USD opened successfully via context.open_stage")
-                    else:
-                        print("⚠️ DEBUG: context.open_stage returned False")
-                        
-                except Exception as e1:
-                    print(f"⚠️ DEBUG: context.open_stage failed: {e1}")
-                    
-                    try:
-                        # Method 2: Create new stage and add as reference
-                        print("🔧 DEBUG: Trying new stage with reference method")
-                        context.new_stage()
-                        time.sleep(1)
-                        
-                        stage = context.get_stage()
-                        if stage:
-                            # Create a root prim and add reference
-                            root_prim = stage.DefinePrim(f"/{asset_name}", "Xform")
-                            root_prim.GetReferences().AddReference(usd_path)
-                            stage.SetDefaultPrim(root_prim)
-                            print("✅ DEBUG: USD added as reference to new stage")
-                        else:
-                            print("❌ DEBUG: Could not get stage after new_stage")
-                            
-                    except Exception as e2:
-                        print(f"⚠️ DEBUG: Reference method failed: {e2}")
-                        
-                        try:
-                            # Method 3: Use CreateReference command (if available)
-                            print("🔧 DEBUG: Trying CreateReference command")
-                            stage = context.get_stage()
-                            if not stage:
-                                context.new_stage()
-                                stage = context.get_stage()
-                                
-                            if stage:
-                                omni.kit.commands.execute(
-                                    'CreateReference',
-                                    usd_context=context,
-                                    path_to=f"/{asset_name}",
-                                    asset_path=usd_path,
-                                    instanceable=False
-                                )
-                                print("✅ DEBUG: USD added via CreateReference command")
-                            
-                        except Exception as e3:
-                            print(f"❌ DEBUG: All import methods failed: {e3}")
-                            print("🔧 DEBUG: USD file created but manual import required")
-                
-                # Update asset status
-                for asset in self.uploaded_assets:
-                    if asset["asset_name"] == asset_name:
-                        asset["imported_to_scene"] = True
-                        asset["scene_prim_path"] = f"/{asset_name}"
-                        break
-                
-                print(f"✅ DEBUG: Import process completed for {asset_name}")
-                print(f"📍 DEBUG: USD file location: {usd_path}")
-                        
-            except Exception as e:
-                print(f"❌ DEBUG: Import error: {e}")
-                import traceback
-                traceback.print_exc()
-        
-        # Run in background thread
+    def _copy_texture_to_persistent_location(self, source_texture_path: str, material_name: str) -> Optional[str]:
+        """Copy texture to persistent location and return absolute path"""
         try:
-            import threading
-            thread = threading.Thread(target=import_with_correct_commands, daemon=True)
-            thread.start()
-            print("✅ DEBUG: Import thread started with correct commands")
+            if not os.path.exists(source_texture_path):
+                print(f"⚠️ DEBUG: Source texture not found: {source_texture_path}")
+                return None
+            
+            # Create persistent textures directory
+            textures_dir = os.path.join(self.temp_dir, "textures")
+            os.makedirs(textures_dir, exist_ok=True)
+            
+            # Generate unique filename
+            source_name = Path(source_texture_path).name
+            safe_material_name = re.sub(r'[^a-zA-Z0-9_]', '_', material_name)
+            dest_filename = f"{safe_material_name}_{source_name}"
+            dest_path = os.path.join(textures_dir, dest_filename)
+            
+            # Copy texture file
+            shutil.copy2(source_texture_path, dest_path)
+            
+            # Return absolute path
+            absolute_path = os.path.abspath(dest_path)
+            print(f"📁 DEBUG: Texture copied to: {absolute_path}")
+            
+            return absolute_path
+            
         except Exception as e:
-            print(f"❌ DEBUG: Error starting import thread: {e}")
+            print(f"❌ DEBUG: Error copying texture: {e}")
+            return None
     
-    async def _direct_usd_import(self, usd_path: str, asset_name: str):
-        """Direct USD import with yields to prevent blocking"""
+    def _verify_usd_textures(self, usd_path: str):
+        """Verify that textures in USD file are accessible"""
         try:
-            import omni.kit.app
-            import omni.kit.commands
-            import omni.usd
-            
-            app = omni.kit.app.get_app()
-            
-            print("🔧 DEBUG: Getting USD context...")
-            context = omni.usd.get_context()
-            
-            # Yield control
-            await app.next_update_async()
-            
-            stage = context.get_stage()
+            stage = Usd.Stage.Open(usd_path)
             if not stage:
-                print("❌ DEBUG: No USD stage available for import")
+                print("⚠️ DEBUG: Cannot open USD stage for texture verification")
                 return
             
-            print("🔧 DEBUG: USD stage available, proceeding...")
+            texture_count = 0
+            missing_textures = []
             
-            # Yield control
-            await app.next_update_async()
+            for prim in stage.Traverse():
+                if prim.IsA(UsdShade.Shader):
+                    shader = UsdShade.Shader(prim)
+                    
+                    # Look for file inputs (textures)
+                    for input_name in shader.GetInputNames():
+                        input_attr = shader.GetInput(input_name)
+                        if input_attr.GetTypeName() == Sdf.ValueTypeNames.Asset:
+                            asset_path = input_attr.Get()
+                            if asset_path:
+                                texture_path = str(asset_path.resolvedPath) or str(asset_path)
+                                texture_count += 1
+                                
+                                if not os.path.exists(texture_path):
+                                    missing_textures.append(texture_path)
+                                    print(f"❌ DEBUG: Missing texture: {texture_path}")
+                                else:
+                                    print(f"✅ DEBUG: Found texture: {texture_path}")
             
-            # Create folder structure step by step
-            print("🔧 DEBUG: Creating /World/RoWorks...")
-            roworks_path = "/World/RoWorks"
-            if not stage.GetPrimAtPath(roworks_path):
-                roworks_prim = stage.DefinePrim(roworks_path, "Xform")
-                print(f"✅ DEBUG: Created {roworks_path}")
+            print(f"📊 DEBUG: Texture verification - {texture_count} total, {len(missing_textures)} missing")
             
-            # Yield control
-            await app.next_update_async()
-            
-            print("🔧 DEBUG: Creating MeshAssets folder...")
-            meshes_path = f"{roworks_path}/MeshAssets"
-            if not stage.GetPrimAtPath(meshes_path):
-                meshes_prim = stage.DefinePrim(meshes_path, "Xform")
-                print(f"✅ DEBUG: Created {meshes_path}")
-            
-            # Yield control
-            await app.next_update_async()
-            
-            # Create the asset prim
-            import_path = f"{meshes_path}/{asset_name}"
-            print(f"🔧 DEBUG: Creating asset prim at: {import_path}")
-            
-            # Check if prim already exists
-            if stage.GetPrimAtPath(import_path):
-                print(f"⚠️ DEBUG: Prim already exists at {import_path}, removing...")
-                stage.RemovePrim(import_path)
-                await app.next_update_async()
-            
-            # Create the prim
-            asset_prim = stage.DefinePrim(import_path, "Xform")
-            print(f"✅ DEBUG: Created prim: {import_path}")
-            
-            # Yield control before adding reference
-            await app.next_update_async()
-            
-            # Add the reference - this is the critical step that might hang
-            print(f"🔧 DEBUG: Adding reference to USD file: {usd_path}")
-            try:
-                # Use Omniverse commands for more reliable reference addition
-                omni.kit.commands.execute('CreateReference',
-                    usd_context=context,
-                    path_to=import_path,
-                    asset_path=usd_path,
-                    instanceable=False
-                )
-                print("✅ DEBUG: Reference added via commands")
-            except Exception as ref_error:
-                print(f"⚠️ DEBUG: Command reference failed, trying direct: {ref_error}")
-                # Fallback to direct reference
-                asset_prim.GetReferences().AddReference(usd_path)
-                print("✅ DEBUG: Reference added directly")
-            
-            # Yield control
-            await app.next_update_async()
-            
-            # Add metadata
-            print("🔧 DEBUG: Adding metadata...")
-            asset_prim.CreateAttribute("roworks:source_file", Sdf.ValueTypeNames.String).Set(usd_path)
-            asset_prim.CreateAttribute("roworks:asset_type", Sdf.ValueTypeNames.String).Set("mesh_asset")
-            asset_prim.CreateAttribute("roworks:import_method", Sdf.ValueTypeNames.String).Set("direct_import")
-            
-            # Set transform
-            xform = UsdGeom.Xformable(asset_prim)
-            xform.AddTranslateOp().Set((0, 0, 0))
-            
-            # Final yield
-            await app.next_update_async()
-            
-            print(f"✅ DEBUG: USD asset imported successfully: {import_path}")
+        except Exception as e:
+            print(f"⚠️ DEBUG: Error verifying textures: {e}")
+    
+    def _schedule_usd_import(self, usd_path: str, asset_name: str):
+        """Schedule USD asset import using non-blocking importer"""
+        print(f"🔧 DEBUG: Scheduling USD import: {asset_name}")
+        
+        def import_callback(success: bool, name: str, message: str):
+            """Callback when import completes"""
+            print(f"🔧 DEBUG: Import callback - {name}: {success} - {message}")
             
             # Update asset status
             for asset in self.uploaded_assets:
-                if asset["asset_name"] == asset_name:
-                    asset["imported_to_scene"] = True
-                    asset["scene_prim_path"] = import_path
+                if asset["asset_name"] == name:
+                    asset["imported_to_scene"] = success
+                    asset["scene_prim_path"] = f"/World/RoWorks/Assets/{name}" if success else None
+                    asset["import_message"] = message
+                    asset["import_status"] = "completed" if success else "failed"
                     break
-                    
-        except Exception as e:
-            print(f"❌ DEBUG: Direct USD import error: {e}")
-            import traceback
-            traceback.print_exc()
-            raise
+            
+            if success:
+                print(f"✅ DEBUG: Asset imported successfully: {name}")
+            else:
+                print(f"❌ DEBUG: Asset import failed: {name} - {message}")
+        
+        # Use the non-blocking importer
+        import_task = self.usd_importer.schedule_import(usd_path, asset_name, import_callback)
+        
+        if import_task:
+            # Mark as importing
+            for asset in self.uploaded_assets:
+                if asset["asset_name"] == asset_name:
+                    asset["import_status"] = "importing"
+                    asset["import_message"] = "Import in progress..."
+                    break
+            print(f"✅ DEBUG: Import scheduled successfully: {asset_name}")
+        else:
+            # Mark as failed
+            for asset in self.uploaded_assets:
+                if asset["asset_name"] == asset_name:
+                    asset["import_status"] = "failed"
+                    asset["import_message"] = "Failed to schedule import"
+                    break
+            print(f"❌ DEBUG: Import scheduling failed: {asset_name}")
     
     def _sanitize_name(self, filename: str) -> str:
         """Create safe USD prim name"""
@@ -652,12 +817,22 @@ class MeshUSDManager:
     
     def get_status(self) -> Dict[str, Any]:
         """Get current status"""
-        return {
+        base_status = {
             "total_assets": len(self.uploaded_assets),
             "workflow": "Upload mesh ZIP (OBJ+MTL+textures) to create USD assets",
             "temp_dir": self.temp_dir,
             "scene_manager_available": self.scene_manager is not None
         }
+        
+        # Add import queue status
+        importer_status = self.usd_importer.get_status()
+        base_status.update({
+            "import_queue_length": importer_status["queue_length"],
+            "currently_importing": importer_status["is_importing"],
+            "queued_imports": importer_status["queued_imports"]
+        })
+        
+        return base_status
     
     def get_assets(self) -> List[Dict]:
         """Get all uploaded assets"""
@@ -682,18 +857,19 @@ class MeshUSDManager:
                 scene_objects.append({
                     "name": asset["asset_name"],
                     "type": "mesh_asset",
-                    "prim_path": asset.get("scene_prim_path", f"/World/RoWorks/MeshAssets/{asset['asset_name']}"),
+                    "prim_path": asset.get("scene_prim_path", f"/World/RoWorks/Assets/{asset['asset_name']}"),
                     "usd_path": asset["usd_path"],
                     "imported": True,
                     "file_size": asset["file_size"],
-                    "created_at": asset["created_at"]
+                    "created_at": asset["created_at"],
+                    "import_status": asset.get("import_status", "unknown")
                 })
         
         return scene_objects
 
 
 class MeshAPIService:
-    """API service for mesh ZIP to USD conversion"""
+    """API service for mesh ZIP to USD conversion with all fixes"""
     
     def __init__(self):
         print("🔧 DEBUG: Initializing MeshAPIService")
@@ -707,11 +883,11 @@ class MeshAPIService:
             
         self._app = FastAPI(
             title="RoWorks Mesh USD API",
-            description="Mesh ZIP (OBJ+MTL+textures) to USD conversion",
-            version="2.0.0"
+            description="Mesh ZIP (OBJ+MTL+textures) to USD conversion with texture fixes",
+            version="2.1.0"
         )
         
-        # Enable CORS
+        # Enable CORS with proper headers
         self._app.add_middleware(
             CORSMiddleware,
             allow_origins=["*"],
@@ -722,12 +898,13 @@ class MeshAPIService:
         
         self._server = None
         self._server_thread = None
+        self._startup_time = time.time()
         self.usd_manager = MeshUSDManager()
         self._setup_routes()
-        print("🔧 DEBUG: Mesh API Service initialized")
+        print("🔧 DEBUG: Mesh API Service initialized with CORS enabled")
     
     def _setup_routes(self):
-        """Setup API routes"""
+        """Setup API routes with all endpoints"""
         if not self._app:
             return
             
@@ -736,14 +913,39 @@ class MeshAPIService:
             return {
                 "status": "healthy",
                 "service": "mesh_usd_creation",
-                "version": "2.0.0",
+                "version": "2.1.0",
                 "workflow": "Upload mesh ZIP (OBJ+MTL+textures) to create USD assets",
+                "cors_enabled": True,
+                "endpoints_available": [
+                    "/health", "/status", "/mesh/import", "/debug/analyze-zip", 
+                    "/debug/import-status", "/assets", "/assets/clear", "/formats/supported"
+                ],
                 **self.usd_manager.get_status()
             }
         
         @self._app.get("/status")
-        async def get_status():
-            return self.usd_manager.get_status()
+        async def get_enhanced_status():
+            base_status = self.usd_manager.get_status()
+            
+            return {
+                **base_status,
+                "api_version": "2.1.0",
+                "service_type": "mesh_processing",
+                "cors_enabled": True,
+                "features": [
+                    "mesh_zip_upload",
+                    "usd_creation", 
+                    "non_blocking_import",
+                    "texture_processing",
+                    "material_binding",
+                    "absolute_texture_paths"
+                ],
+                "uptime_info": {
+                    "startup_time": self._startup_time,
+                    "current_time": time.time(),
+                    "uptime_seconds": time.time() - self._startup_time
+                }
+            }
         
         @self._app.get("/assets")
         async def get_assets():
@@ -754,20 +956,95 @@ class MeshAPIService:
         
         @self._app.get("/scene/info")
         async def get_scene_info():
-            """Get scene information - compatible with existing web interface"""
+            """Get scene information - enhanced version"""
             scene_objects = self.usd_manager.get_scene_objects()
             
             # Count objects by type for compatibility
             by_type = {}
+            by_status = {}
+            
             for obj in scene_objects:
                 obj_type = obj.get("type", "unknown")
                 by_type[obj_type] = by_type.get(obj_type, 0) + 1
+                
+                status = "imported" if obj.get("imported", False) else "pending"
+                by_status[status] = by_status.get(status, 0) + 1
             
             return {
                 "total_objects": len(scene_objects),
                 "objects_by_type": by_type,
+                "objects_by_status": by_status,
                 "objects": scene_objects,
-                "workflow": "Mesh ZIP (OBJ+MTL+textures) to USD assets"
+                "workflow": "Mesh ZIP (OBJ+MTL+textures) to USD assets",
+                "last_updated": time.time()
+            }
+        
+        @self._app.get("/debug/import-status")
+        async def get_detailed_import_status():
+            """Get detailed import status - matches what web server expects"""
+            return {
+                "import_system": "simplified_non_blocking_v2",
+                "status": self.usd_manager.get_status(),
+                "assets": [
+                    {
+                        "name": asset["asset_name"],
+                        "imported": asset.get("imported_to_scene", False),
+                        "status": asset.get("import_status", "unknown"),
+                        "message": asset.get("import_message", "No status"),
+                        "usd_path": asset.get("usd_path", ""),
+                        "file_size": asset.get("file_size", 0),
+                        "created_at": asset.get("created_at", 0)
+                    }
+                    for asset in self.usd_manager.uploaded_assets
+                ],
+                "queue_info": {
+                    "length": len(self.usd_manager.usd_importer.import_queue),
+                    "is_importing": self.usd_manager.usd_importer.is_importing,
+                    "queued_items": [task["asset_name"] for task in self.usd_manager.usd_importer.import_queue]
+                }
+            }
+        
+        @self._app.get("/formats/supported")
+        async def get_supported_formats():
+            """Get supported file formats"""
+            return {
+                "input_format": ".zip",
+                "required_contents": ["*.obj", "*.mtl (optional)", "*.jpg/*.png (optional)"],
+                "description": "ZIP archives containing OBJ mesh with optional MTL materials and texture images",
+                "max_file_size": "100MB",
+                "workflow": "Upload mesh ZIP → USD asset creation → Scene import",
+                "supported_extensions": {
+                    "mesh": [".obj"],
+                    "materials": [".mtl"],
+                    "textures": [".jpg", ".jpeg", ".png", ".tiff", ".tga", ".bmp"]
+                },
+                "texture_features": [
+                    "Absolute path resolution",
+                    "Persistent texture storage",
+                    "UV coordinate mapping",
+                    "PBR material creation"
+                ]
+            }
+        
+        @self._app.post("/debug/test-connectivity")
+        async def test_connectivity():
+            """Test endpoint for web server connectivity"""
+            return {
+                "success": True,
+                "message": "RoWorks API is responding",
+                "service": "roworks_mesh_usd_api",
+                "version": "2.1.0",
+                "timestamp": time.time(),
+                "endpoints": {
+                    "health": "/health",
+                    "status": "/status", 
+                    "mesh_import": "/mesh/import",
+                    "analyze_zip": "/debug/analyze-zip",
+                    "import_status": "/debug/import-status",
+                    "assets": "/assets",
+                    "clear_scene": "/assets/clear",
+                    "supported_formats": "/formats/supported"
+                }
             }
         
         @self._app.post("/mesh/import")
@@ -870,16 +1147,36 @@ class MeshAPIService:
                     "message": f"Analysis failed: {str(e)}"
                 }
         
-        @self._app.get("/formats/supported")
-        async def get_supported_formats():
-            """Get supported file formats"""
-            return {
-                "input_format": ".zip",
-                "required_contents": ["*.obj", "*.mtl (optional)", "*.jpg/*.png (optional)"],
-                "description": "ZIP archives containing OBJ mesh with optional MTL materials and texture images",
-                "max_file_size": "100MB",
-                "workflow": "Upload mesh ZIP → USD asset creation → Scene import"
-            }
+        @self._app.post("/debug/force-import/{asset_name}")
+        async def force_import_asset(asset_name: str):
+            """Force retry import of a specific asset"""
+            try:
+                # Find the asset
+                target_asset = None
+                for asset in self.usd_manager.uploaded_assets:
+                    if asset["asset_name"] == asset_name:
+                        target_asset = asset
+                        break
+                
+                if not target_asset:
+                    raise HTTPException(status_code=404, detail="Asset not found")
+                
+                if not target_asset.get("usd_path") or not os.path.exists(target_asset["usd_path"]):
+                    raise HTTPException(status_code=400, detail="USD file not found")
+                
+                # Schedule import
+                self.usd_manager._schedule_usd_import(target_asset["usd_path"], asset_name)
+                
+                return {
+                    "success": True,
+                    "message": f"Import scheduled for {asset_name}",
+                    "asset": target_asset
+                }
+                
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
         
         @self._app.delete("/assets/clear")
         async def clear_assets():
@@ -938,19 +1235,48 @@ class MeshAPIService:
 
 class RoWorksServiceApiExtension(omni.ext.IExt):
     def on_startup(self, ext_id):
-        print("🚀 DEBUG: RoWorks Mesh USD API Extension Starting!")
+        print("🚀 DEBUG: RoWorks Complete Mesh USD API Extension Starting!")
         
         try:
             self._api_service = MeshAPIService()
             
             if FASTAPI_AVAILABLE:
                 self._api_service.start_server()
-                print("✅ DEBUG: Mesh USD extension startup complete")
-                print(f"🚀 API: http://localhost:49101 (Mesh USD Creation)")
+                print("✅ DEBUG: Complete Mesh USD extension startup complete")
+                print(f"🚀 API: http://localhost:49101 (Complete Mesh USD Creation)")
                 print("📝 Upload mesh ZIP files (OBJ+MTL+textures) to create USD assets")
-                print("🎨 Supports textured 3D models with full material fidelity")
+                print("🎨 Supports textured 3D models with absolute texture paths")
                 print("📊 Max file size: 100MB")
-                print("🔄 Automatic USD creation and scene import")
+                print("🔄 Non-blocking USD import prevents UI hanging")
+                print("🌐 CORS enabled for web interface integration")
+                print("🖼️ Fixed texture path resolution for materials")
+                
+                # Print available endpoints for debugging
+                print("🔗 Available API endpoints:")
+                endpoints = [
+                    "GET  /health - Health check with full status",
+                    "GET  /status - Enhanced service status", 
+                    "POST /mesh/import - Upload mesh ZIP with texture fixes",
+                    "POST /debug/analyze-zip - Analyze ZIP contents",
+                    "GET  /debug/import-status - Detailed import queue status",
+                    "POST /debug/force-import/{name} - Force retry import",
+                    "GET  /assets - List scene assets",
+                    "GET  /scene/info - Enhanced scene information",
+                    "DELETE /assets/clear - Clear scene",
+                    "GET  /formats/supported - Supported formats with features",
+                    "POST /debug/test-connectivity - Connection test"
+                ]
+                for endpoint in endpoints:
+                    print(f"     {endpoint}")
+                
+                print("🎯 Key Features:")
+                print("     ✅ Absolute texture paths for materials")
+                print("     ✅ Persistent texture storage")
+                print("     ✅ Non-blocking USD import queue")
+                print("     ✅ Enhanced CORS support")
+                print("     ✅ Real-time import status tracking")
+                print("     ✅ Comprehensive error handling")
+                    
             else:
                 print("⚠️ DEBUG: API service disabled - FastAPI dependencies not available")
                 print("🔧 DEBUG: Extension will continue without API functionality")
@@ -961,7 +1287,7 @@ class RoWorksServiceApiExtension(omni.ext.IExt):
             traceback.print_exc()
         
     def on_shutdown(self):
-        print("🔧 DEBUG: Mesh USD extension shutting down")
+        print("🔧 DEBUG: Complete Mesh USD extension shutting down")
         
         if hasattr(self, '_api_service') and self._api_service:
             self._api_service.stop_server()
